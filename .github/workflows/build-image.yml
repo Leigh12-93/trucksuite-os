@@ -1,0 +1,67 @@
+name: Build image
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Free disk space (optional)
+        run: |
+          sudo rm -rf /usr/local/lib/android || true
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static xz-utils
+
+      - name: Clone pi-gen
+        run: |
+          git clone --depth 1 https://github.com/RPi-Distro/pi-gen.git
+          cp -r stage-trucksuite pi-gen/
+
+      - name: Write pi-gen config
+        run: |
+          cat > pi-gen/config <<'CFG'
+          IMG_NAME=trucksuite
+          RELEASE=bookworm
+          TARGET_HOSTNAME=crow
+          ENABLE_SSH=1
+          FIRST_USER_NAME=pi
+          FIRST_USER_PASS=raspberry
+          WPA_COUNTRY=AU
+          LOCALE_DEFAULT=en_AU.UTF-8
+          TIMEZONE=Australia/Adelaide
+          STAGE_LIST="stage0 stage1 stage2 stage-trucksuite"
+          EXPORT_IMAGE=1
+          CFG
+          cat pi-gen/config
+
+      - name: Build image with Docker
+        working-directory: pi-gen
+        run: |
+          sudo ./build-docker.sh
+
+      - name: Collect artifact
+        run: |
+          mkdir -p out
+          cp -v pi-gen/deploy/*.img* out/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trucksuite-image
+          path: out/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: trucksuite v${{ github.run_number }}
+          draft: false
+          prerelease: false
+          files: out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
